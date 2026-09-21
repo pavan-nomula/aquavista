@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-dark: #070d18;
+    --primary-cyan: #00f5d4;
+    --primary-blue: #00b4d8;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #070d18;
+    color: #e2e8f0;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Custom Aquatic Glassmorphism */
+.glass-panel {
+  background: rgba(11, 20, 36, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(0, 245, 212, 0.12);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.glass-panel-elevated {
+  background: rgba(14, 28, 49, 0.85);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(15, 28, 49, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(0, 245, 212, 0.3);
+  box-shadow: 0 8px 24px -4px rgba(0, 245, 212, 0.15);
+  transform: translateY(-2px);
+}
+
+.glass-input {
+  background: rgba(7, 13, 24, 0.7);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+  color: #f8fafc;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: #00f5d4;
+  box-shadow: 0 0 0 2px rgba(0, 245, 212, 0.2);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #070d18;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #182d4d;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #00f5d4;
+}
+
+/* Aquatic Glow Effects */
+.glow-cyan-text {
+  text-shadow: 0 0 16px rgba(0, 245, 212, 0.5);
+}
+
+.glow-ambient {
+  box-shadow: 0 0 50px -10px rgba(0, 180, 216, 0.15);
+}
+
+/* Range input styling */
+input[type="range"] {
+  accent-color: #00f5d4;
+}
