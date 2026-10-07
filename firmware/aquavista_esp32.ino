@@ -108,11 +108,12 @@ void setRelay(int pin, bool state) {
   }
 }
 
-/******************* CORS HELPER FOR WEB DASHBOARD *******************/
+/******************* CORS & PRIVATE NETWORK HELPER *******************/
 void sendCorsHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Access-Control-Request-Private-Network");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");
 }
 
 /******************* SENSOR READING FUNCTIONS *******************/
@@ -291,32 +292,89 @@ void handleOptions() {
   server.send(204);
 }
 
-// Root page
+// Root page - Built-in Live Interactive Local Dashboard
 void handleRoot() {
   sendCorsHeaders();
   String ipStr = WiFi.localIP().toString();
-  String html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<title>AquaVista ESP32 Controller</title>";
+  String html = "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<title>AquaVista Live Controller</title>";
   html += "<style>";
-  html += "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#070d18;color:#f8fafc;padding:30px 16px;text-align:center;margin:0;}";
-  html += ".card{max-width:520px;margin:auto;background:rgba(15,23,42,0.9);border:1px solid rgba(56,189,248,0.25);border-radius:18px;padding:28px;box-shadow:0 8px 32px rgba(0,0,0,0.4);}";
-  html += "h1{color:#38bdf8;margin-top:0;font-size:26px;}";
-  html += ".btn{display:inline-block;padding:12px 24px;margin:8px;background:#06b6d4;color:#070d18;font-weight:700;border-radius:10px;text-decoration:none;transition:all 0.2s;}";
-  html += ".btn:hover{background:#38bdf8;}";
-  html += ".btn-sec{background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);}";
-  html += ".code-box{background:#020617;border:1px solid #1e293b;padding:12px;border-radius:10px;font-family:monospace;color:#a5f3fc;margin:18px 0;word-break:break-all;}";
-  html += ".status{font-size:13px;color:#94a3b8;line-height:1.6;}";
+  html += "*{box-sizing:border-box;}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#070d18;color:#f8fafc;padding:20px 14px;margin:0;}";
+  html += ".wrap{max-width:680px;margin:auto;}";
+  html += ".header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;}";
+  html += "h1{color:#38bdf8;margin:0;font-size:22px;letter-spacing:-0.5px;}h1 span{color:#06b6d4;}";
+  html += ".badge{background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);padding:4px 10px;border-radius:20px;font-size:12px;font-family:monospace;}";
+  html += ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;}";
+  html += ".card{background:rgba(15,23,42,0.85);border:1px solid rgba(56,189,248,0.2);border-radius:14px;padding:14px;text-align:center;}";
+  html += ".lbl{color:#94a3b8;font-size:11px;text-transform:uppercase;font-weight:700;letter-spacing:0.5px;}";
+  html += ".val{font-size:24px;font-weight:800;color:#f8fafc;margin-top:4px;font-family:monospace;}";
+  html += ".val small{font-size:14px;color:#38bdf8;}";
+  html += ".sec-title{font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;margin:16px 0 10px;}";
+  html += ".actuators{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px;}";
+  html += ".btn-dev{display:flex;justify-content:space-between;align-items:center;background:rgba(15,23,42,0.9);border:1px solid #1e293b;border-radius:12px;padding:12px 14px;color:#f8fafc;cursor:pointer;font-size:13px;font-weight:600;width:100%;text-align:left;transition:all 0.2s;}";
+  html += ".btn-dev.active{border-color:#06b6d4;background:rgba(6,182,212,0.15);color:#a5f3fc;}";
+  html += ".pill{font-size:10px;padding:2px 8px;border-radius:10px;background:#1e293b;color:#94a3b8;font-family:monospace;}";
+  html += ".btn-dev.active .pill{background:#06b6d4;color:#070d18;font-weight:800;}";
+  html += ".actions{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}";
+  html += ".btn-action{flex:1;min-width:140px;padding:12px;border-radius:12px;border:none;background:#06b6d4;color:#070d18;font-weight:800;cursor:pointer;font-size:13px;transition:0.2s;}";
+  html += ".btn-action:hover{background:#38bdf8;}";
+  html += ".footer-card{background:rgba(15,23,42,0.6);border:1px solid rgba(56,189,248,0.2);border-radius:14px;padding:14px;text-align:center;font-size:12px;color:#94a3b8;line-height:1.6;}";
+  html += ".footer-card a{color:#38bdf8;text-decoration:none;font-weight:700;}";
   html += "</style></head><body>";
-  html += "<div class='card'>";
-  html += "<h1>AQUA<span style='color:#06b6d4'>VISTA</span> ESP32</h1>";
-  html += "<p class='status'>Smart Aquarium Controller is online and running REST API on Port 80.</p>";
-  html += "<div class='code-box'>ESP32 Controller IP: <b>" + ipStr + "</b></div>";
-  html += "<div style='margin:20px 0;'>";
-  html += "<a class='btn' href='" + String(DASHBOARD_URL) + "' target='_blank'>Open Web Dashboard</a>";
-  html += "<a class='btn btn-sec' href='/api/status'>Live JSON API</a>";
+  html += "<div class='wrap'>";
+  html += "<div class='header'><h1>AQUA<span>VISTA</span> CONTROLLER</h1><span class='badge' id='statusBadge'>IP: " + ipStr + "</span></div>";
+
+  html += "<div class='grid'>";
+  html += "<div class='card'><div class='lbl'>Temperature</div><div class='val' id='temp'>--<small>°C</small></div></div>";
+  html += "<div class='card'><div class='lbl'>Water Level</div><div class='val' id='water'>--<small>%</small></div></div>";
+  html += "<div class='card'><div class='lbl'>TDS Quality</div><div class='val' id='tds'>--<small>ppm</small></div></div>";
+  html += "<div class='card'><div class='lbl'>Ambient Light</div><div class='val' id='light'>--<small>lx</small></div></div>";
   html += "</div>";
-  html += "<p class='status'>To link: Open the Dashboard &gt; <b>Settings</b> &gt; Enter <code>" + ipStr + "</code> under <b>ESP32 Hardware Controller Link</b>.</p>";
-  html += "</div></body></html>";
+
+  html += "<div class='sec-title'>Live Actuator Relays</div>";
+  html += "<div class='actuators'>";
+  html += "<button class='btn-dev' id='btn-heater' onclick='toggleDev(\"heater\")'><span>♨️ Heater</span><span class='pill' id='p-heater'>OFF</span></button>";
+  html += "<button class='btn-dev' id='btn-airPump' onclick='toggleDev(\"airPump\")'><span>💨 Air Pump</span><span class='pill' id='p-airPump'>OFF</span></button>";
+  html += "<button class='btn-dev' id='btn-light' onclick='toggleDev(\"light\")'><span>💡 Light</span><span class='pill' id='p-light'>OFF</span></button>";
+  html += "<button class='btn-dev' id='btn-fillPump' onclick='toggleDev(\"fillPump\")'><span>🚰 Fill Pump</span><span class='pill' id='p-fillPump'>OFF</span></button>";
+  html += "<button class='btn-dev' id='btn-drainPump' onclick='toggleDev(\"drainPump\")'><span>🔄 Drain Pump</span><span class='pill' id='p-drainPump'>OFF</span></button>";
+  html += "</div>";
+
+  html += "<div class='actions'>";
+  html += "<button class='btn-action' onclick='triggerFeed()'>🐟 Dispense Food (Servo)</button>";
+  html += "<button class='btn-action' style='background:#f59e0b;color:#070d18;' onclick='triggerWaterChange()'>🔄 Auto Water Change</button>";
+  html += "</div>";
+
+  html += "<div class='footer-card'>";
+  html += "<div>Live streaming directly from ESP32. Synced every 1.5s.</div>";
+  html += "<div style='margin-top:6px;'><a href='" + String(DASHBOARD_URL) + "' target='_blank'>Open Full Cloud Dashboard (Vercel) &rarr;</a></div>";
+  html += "</div>";
+  html += "</div>";
+
+  html += "<script>";
+  html += "let state = {};";
+  html += "async function poll(){try{";
+  html += "let r = await fetch('/api/status');let d = await r.json();state = d;";
+  html += "document.getElementById('temp').innerHTML = d.temperature + '<small>°C</small>';";
+  html += "document.getElementById('water').innerHTML = d.waterLevel + '<small>%</small>';";
+  html += "document.getElementById('tds').innerHTML = d.tds + '<small>ppm</small>';";
+  html += "document.getElementById('light').innerHTML = d.lightLevel + '<small>lx</small>';";
+  html += "updBtn('heater', d.heater);";
+  html += "updBtn('airPump', d.airPump);";
+  html += "updBtn('light', d.light);";
+  html += "updBtn('fillPump', d.fillPump);";
+  html += "updBtn('drainPump', d.drainPump);";
+  html += "}catch(e){console.warn(e);}}";
+  html += "function updBtn(id, on){let b = document.getElementById('btn-'+id);let p = document.getElementById('p-'+id);if(!b||!p)return;";
+  html += "if(on){b.classList.add('active');p.innerText='ON';}else{b.classList.remove('active');p.innerText='OFF';}}";
+  html += "async function toggleDev(dev){let cur = state[dev] || false;let next = !cur;";
+  html += "updBtn(dev, next);";
+  html += "await fetch('/api/device?device='+dev+'&state='+(next?1:0),{method:'POST'});poll();}";
+  html += "async function triggerFeed(){alert('Dispensing fish feed...');await fetch('/api/feed',{method:'POST'});}";
+  html += "async function triggerWaterChange(){if(confirm('Start automated water change cycle?')){await fetch('/api/waterchange?action=start',{method:'POST'});poll();}}";
+  html += "setInterval(poll, 1500);poll();";
+  html += "</script></body></html>";
+
   server.send(200, "text/html", html);
 }
 

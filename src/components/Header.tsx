@@ -21,6 +21,7 @@ export const Header: React.FC = () => {
     devices,
     demoMode,
     setDemoMode,
+    esp32Ip,
   } = useAquavista();
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -110,13 +111,14 @@ export const Header: React.FC = () => {
             {connectionStatus === 'connected' ? (
               <>
                 <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-slate-400">Controller:</span>
-                <span className="text-emerald-400 font-bold">ESP32</span>
+                <span className="text-slate-400">ESP32:</span>
+                <span className="text-emerald-400 font-bold">{esp32Ip}</span>
               </>
             ) : (
               <>
                 <WifiOff className="w-3.5 h-3.5 text-rose-400" />
-                <span className="font-bold text-rose-400">Disconnected</span>
+                <span className="text-slate-400">ESP32:</span>
+                <span className="font-bold text-rose-400">{esp32Ip || 'Set IP'}</span>
               </>
             )}
           </button>
