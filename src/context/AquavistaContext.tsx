@@ -117,7 +117,12 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // ESP32 Hardware IP Address
   const [esp32Ip, setEsp32IpState] = useState<string>(() => {
-    return localStorage.getItem('aquavista_esp32_ip') || '192.168.1.100';
+    const stored = localStorage.getItem('aquavista_esp32_ip');
+    if (!stored || stored === '192.168.1.100') {
+      localStorage.setItem('aquavista_esp32_ip', '192.168.1.39');
+      return '192.168.1.39';
+    }
+    return stored;
   });
 
   const setEsp32Ip = useCallback((newIp: string) => {

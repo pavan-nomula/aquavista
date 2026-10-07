@@ -221,7 +221,7 @@ export const SettingsView: React.FC = () => {
                 type="text"
                 value={ipInput}
                 onChange={e => setIpInput(e.target.value)}
-                placeholder="192.168.1.100"
+                placeholder="192.168.1.39"
                 className="w-full pl-16 pr-4 py-2.5 rounded-xl bg-ocean-950 border border-ocean-700 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-400 transition-colors"
               />
             </div>
