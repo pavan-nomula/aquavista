@@ -99,13 +99,13 @@ export const Header: React.FC = () => {
 
           {/* Controller status */}
           <button
-            onClick={() => setConnectionStatus(connectionStatus === 'connected' ? 'offline' : 'connected')}
+            onClick={() => setActiveTab('settings')}
             className={`px-2.5 py-1 rounded-lg border text-xs font-mono flex items-center gap-2 transition-all ${
               connectionStatus === 'connected'
-                ? 'bg-ocean-900 border-ocean-700 text-slate-300'
-                : 'bg-rose-950/40 border-rose-600/40 text-rose-300'
+                ? 'bg-ocean-900 border-ocean-700 text-slate-300 hover:border-cyan-500/50'
+                : 'bg-rose-950/40 border-rose-600/40 text-rose-300 hover:border-rose-400'
             }`}
-            title="Toggle Controller Link"
+            title="Configure ESP32 Connection in Settings"
           >
             {connectionStatus === 'connected' ? (
               <>

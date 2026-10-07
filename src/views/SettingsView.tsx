@@ -9,7 +9,12 @@ import {
   Droplets,
   CalendarClock,
   Sparkles,
+  Wifi,
+  WifiOff,
+  Radio,
+  RefreshCw,
 } from 'lucide-react';
+import { fetchEspStatus } from '../services/hardwareService';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -18,9 +23,29 @@ export const SettingsView: React.FC = () => {
     demoMode,
     setDemoMode,
     connectionStatus,
+    esp32Ip,
+    setEsp32Ip,
   } = useAquavista();
 
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [ipInput, setIpInput] = useState(esp32Ip);
+  const [testState, setTestState] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testMsg, setTestMsg] = useState('');
+
+  const handleTestConnection = async () => {
+    setTestState('testing');
+    setTestMsg('Pinging ESP32 REST server...');
+    try {
+      const clean = ipInput.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      const data = await fetchEspStatus(clean, 3000);
+      setTestState('success');
+      setTestMsg(`Connected! Temp: ${data.temperature}°C, Water: ${data.waterLevel}%, TDS: ${data.tds} ppm`);
+      setEsp32Ip(clean);
+    } catch {
+      setTestState('error');
+      setTestMsg('Connection failed. Make sure your ESP32 is powered on and on the same WiFi network.');
+    }
+  };
 
   const handleSave = () => {
     setSaveSuccess(true);
@@ -158,16 +183,92 @@ export const SettingsView: React.FC = () => {
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> Demo Simulation Mode
               </span>
-              <p className="text-[11px] text-slate-400">Generates simulated sensor changes for demonstrations</p>
+              <p className="text-[11px] text-slate-400">Toggle between simulation and live ESP32 hardware</p>
             </div>
             <button
               onClick={() => setDemoMode(!demoMode)}
               className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
-                demoMode ? 'bg-cyan-500 text-ocean-950' : 'bg-ocean-800 text-slate-400 hover:text-white'
+                demoMode ? 'bg-cyan-500 text-ocean-950 shadow-sm shadow-cyan-500/20' : 'bg-ocean-800 text-slate-400 hover:text-white'
               }`}
             >
-              {demoMode ? 'ENABLED' : 'DISABLED'}
+              {demoMode ? 'SIMULATION' : 'LIVE HW'}
             </button>
+          </div>
+        </div>
+
+        {/* 5. ESP32 Network Controller Link */}
+        <div className="glass-panel rounded-2xl p-5 border border-cyan-500/30 md:col-span-2 space-y-4 bg-gradient-to-br from-ocean-900/80 to-cyan-950/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-white font-bold text-sm">
+              <Radio className="w-4 h-4 text-cyan-400" />
+              <span>ESP32 Hardware Controller Link (WiFi REST API)</span>
+            </div>
+            <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
+              No Cloud / Local LAN
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            Enter your ESP32's local IP address (displayed on your aquarium LCD or Arduino Serial Monitor at startup).
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2 relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 font-mono text-xs">
+                http://
+              </div>
+              <input
+                type="text"
+                value={ipInput}
+                onChange={e => setIpInput(e.target.value)}
+                placeholder="192.168.1.100"
+                className="w-full pl-16 pr-4 py-2.5 rounded-xl bg-ocean-950 border border-ocean-700 text-cyan-300 font-mono text-xs focus:outline-none focus:border-cyan-400 transition-colors"
+              />
+            </div>
+
+            <button
+              onClick={handleTestConnection}
+              disabled={testState === 'testing'}
+              className="px-4 py-2.5 rounded-xl text-xs font-mono font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+            >
+              {testState === 'testing' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Testing...
+                </>
+              ) : (
+                <>
+                  <Wifi className="w-3.5 h-3.5" /> Test & Connect
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Test feedback */}
+          {testState !== 'idle' && (
+            <div
+              className={`p-3 rounded-xl border text-xs font-mono flex items-start gap-2 ${
+                testState === 'success'
+                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                  : testState === 'error'
+                  ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                  : 'bg-ocean-900 border-ocean-700 text-slate-300'
+              }`}
+            >
+              {testState === 'success' ? (
+                <Wifi className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : testState === 'error' ? (
+                <WifiOff className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              ) : (
+                <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0 mt-0.5" />
+              )}
+              <span>{testMsg}</span>
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-ocean-800 text-[11px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+            <span>• Direct REST endpoints: <code className="text-cyan-400">/api/status</code>, <code className="text-cyan-400">/api/device</code>, <code className="text-cyan-400">/api/feed</code></span>
+            <span>• Cross-Origin CORS enabled</span>
+            <span>• Vercel Deployment: <a href="https://aquavista-dashboard.vercel.app/" target="_blank" rel="noreferrer" className="text-cyan-400 underline hover:text-cyan-300">aquavista-dashboard.vercel.app</a></span>
           </div>
         </div>
       </div>

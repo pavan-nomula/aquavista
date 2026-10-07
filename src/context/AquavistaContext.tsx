@@ -27,10 +27,20 @@ import {
   computeEnergyBreakdown,
   computeNextFeedSeconds,
 } from '../services/simulationEngine';
+import {
+  fetchEspStatus,
+  sendEspDeviceCommand,
+  sendEspFeedCommand,
+  sendEspWaterChangeCommand,
+} from '../services/hardwareService';
 
 interface AquavistaContextType {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
+
+  // ESP32 Hardware IP
+  esp32Ip: string;
+  setEsp32Ip: (ip: string) => void;
 
   // 4 Core Sensors
   telemetry: TelemetryData;
@@ -104,6 +114,17 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const [alerts, setAlerts] = useState<AlertItem[]>(INITIAL_ALERTS);
   const [activityLog, setActivityLog] = useState<ActivityLogItem[]>(INITIAL_ACTIVITY);
+
+  // ESP32 Hardware IP Address
+  const [esp32Ip, setEsp32IpState] = useState<string>(() => {
+    return localStorage.getItem('aquavista_esp32_ip') || '192.168.1.100';
+  });
+
+  const setEsp32Ip = useCallback((newIp: string) => {
+    const clean = newIp.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    setEsp32IpState(clean);
+    localStorage.setItem('aquavista_esp32_ip', clean);
+  }, []);
 
   // Demo Mode for realistic simulation during evaluation
   const [demoMode, setDemoMode] = useState(true);
@@ -190,6 +211,10 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                    key === 'fillPump' ? 'ArrowUpCircle' : 'ArrowDownCircle';
       addActivity(label, icon, `${label} turned ${nextOn ? 'ON' : 'OFF'}`, 'Manual');
 
+      if (!demoMode && connectionStatus === 'connected') {
+        sendEspDeviceCommand(esp32Ip, key, nextOn);
+      }
+
       return {
         ...prev,
         [key]: {
@@ -200,7 +225,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       };
     });
-  }, [connectionStatus, telemetry.waterLevel, addActivity]);
+  }, [connectionStatus, telemetry.waterLevel, addActivity, demoMode, esp32Ip]);
 
   const setHeaterTarget = useCallback((temp: number) => {
     setDevices(prev => ({
@@ -233,7 +258,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setDevices(d => ({ ...d, drainPump: { ...d.drainPump, on: true }, fillPump: { ...d.fillPump, on: false } }));
     addActivity('Drain Pump', 'ArrowDownCircle', `Water change started: Draining to ${drainTo}%`, 'Manual');
     addAlert('INFO', 'Water Change Started', `Draining water to ${drainTo}% before fresh refill.`, 'cleaning');
-  }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert]);
+
+    if (!demoMode && connectionStatus === 'connected') {
+      sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
+    }
+  }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, demoMode, esp32Ip]);
 
   const abortWaterChange = useCallback(() => {
     setCleaningState(prev => ({
@@ -248,7 +277,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }));
     addActivity('Water Management', 'AlertTriangle', 'Water change cancelled by user', 'Manual');
     addAlert('WARNING', 'Water Change Cancelled', 'Pumps stopped. Normal monitoring resumed.', 'cleaning');
-  }, [addActivity, addAlert]);
+
+    if (!demoMode && connectionStatus === 'connected') {
+      sendEspWaterChangeCommand(esp32Ip, 'abort');
+    }
+  }, [addActivity, addAlert, demoMode, esp32Ip]);
 
   const updateAutomation = useCallback((newSettings: Partial<AutomationSettings>) => {
     setAutomation(prev => ({ ...prev, ...newSettings }));
@@ -290,10 +323,14 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addAlert('SUCCESS', 'Fish Feeder Dispensed', `${portionLabel} portion of nutrient flakes dispensed for fishes.`, 'feeder');
     }
 
+    if (!demoMode && connectionStatus === 'connected') {
+      sendEspFeedCommand(esp32Ip);
+    }
+
     setTimeout(() => {
       setFeeder(prev => ({ ...prev, isDispensing: false }));
     }, 2500);
-  }, [feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert]);
+  }, [feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert, demoMode, esp32Ip, connectionStatus]);
 
   const updateFeederSettings = useCallback((settings: Partial<FeederState>) => {
     setFeeder(prev => ({ ...prev, ...settings }));
@@ -549,11 +586,61 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addAlert,
   ]);
 
+  // LIVE HARDWARE POLLING (Active when demoMode is disabled)
+  useEffect(() => {
+    if (demoMode) return;
+
+    let isSubscribed = true;
+    const syncHardware = async () => {
+      try {
+        const data = await fetchEspStatus(esp32Ip, 2500);
+        if (!isSubscribed) return;
+
+        setConnectionStatus('connected');
+        setLastSyncSecondsAgo(0);
+
+        setTelemetry(prev => ({
+          ...prev,
+          temperature: Number(data.temperature.toFixed(1)),
+          waterLevel: Number(data.waterLevel.toFixed(1)),
+          tds: Math.round(data.tds),
+          lightLevel: Math.round(data.lightLevel),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+
+        setDevices(prev => ({
+          ...prev,
+          heater: { ...prev.heater, on: data.heater },
+          airPump: { ...prev.airPump, on: data.airPump },
+          light: { ...prev.light, on: data.light },
+          fillPump: { ...prev.fillPump, on: data.fillPump },
+          drainPump: { ...prev.drainPump, on: data.drainPump },
+        }));
+
+        if (data.feederDispensing !== undefined) {
+          setFeeder(f => ({ ...f, isDispensing: data.feederDispensing ?? false }));
+        }
+      } catch {
+        if (!isSubscribed) return;
+        setConnectionStatus('offline');
+      }
+    };
+
+    syncHardware();
+    const pollInterval = setInterval(syncHardware, 2000);
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+    };
+  }, [demoMode, esp32Ip]);
+
   return (
     <AquavistaContext.Provider
       value={{
         activeTab,
         setActiveTab,
+        esp32Ip,
+        setEsp32Ip,
         telemetry,
         telemetryHistory,
         connectionStatus,
