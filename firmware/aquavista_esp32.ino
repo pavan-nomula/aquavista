@@ -66,6 +66,7 @@ float waterPercent  = 80.0; // %
 float tdsValue      = 250.0;// ppm
 int   lightLevel    = 400;  // lux / raw
 String rtcTimeString = "00:00:00";
+bool   rtcFound      = false;
 
 // Actuator States
 bool heaterOn    = false;
@@ -151,7 +152,7 @@ void readSensors() {
   if (lightLevel < 0) lightLevel = 0;
 
   // 5. RTC Time
-  if (rtc.isrunning()) {
+  if (rtcFound) {
     DateTime now = rtc.now();
     char buf[10];
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", now.hour(), now.minute(), now.second());
@@ -473,11 +474,13 @@ void setup() {
 
   // Initialize RTC
   if (rtc.begin()) {
+    rtcFound = true;
     Serial.println("[RTC] DS3231 Initialized successfully.");
     if (rtc.lostPower()) {
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
   } else {
+    rtcFound = false;
     Serial.println("[RTC] DS3231 not detected on I2C bus.");
   }
 
