@@ -7,6 +7,8 @@ import {
   Clock,
   Maximize2,
   Bell,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -19,6 +21,9 @@ export const Header: React.FC = () => {
     setActiveTab,
     devices,
     esp32Ip,
+    isUnlocked,
+    lockControls,
+    openPinModal,
   } = useAquavista();
 
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -89,6 +94,35 @@ export const Header: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>LIVE HARDWARE</span>
           </div>
+
+          {/* Security Passcode Status (Lock / Unlock) */}
+          <button
+            onClick={() => {
+              if (isUnlocked) {
+                lockControls();
+              } else {
+                openPinModal('unlock operator controls');
+              }
+            }}
+            className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 border transition-all cursor-pointer ${
+              isUnlocked
+                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-950'
+                : 'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:bg-amber-900/60 shadow-sm shadow-amber-950'
+            }`}
+            title={isUnlocked ? 'Operator Controls UNLOCKED (Click to Lock)' : 'Manual Controls LOCKED (Monitor Only - Click to Enter PIN)'}
+          >
+            {isUnlocked ? (
+              <>
+                <Unlock className="w-3.5 h-3.5 text-emerald-400" />
+                <span>UNLOCKED</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                <span>LOCKED</span>
+              </>
+            )}
+          </button>
 
           {/* Controller status */}
           <button

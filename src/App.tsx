@@ -4,6 +4,7 @@ import { BootSplash } from './components/BootSplash';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { SafetyInterlockBanner } from './components/SafetyInterlockBanner';
+import { SecurityPinModal } from './components/SecurityPinModal';
 import { OverviewView } from './views/OverviewView';
 import { LiveMonitoringView } from './views/LiveMonitoringView';
 import { WaterManagementView } from './views/WaterManagementView';
@@ -55,6 +56,9 @@ const DashboardContent: React.FC = () => {
           {renderActiveView()}
         </main>
       </div>
+
+      {/* Security Passcode Modal for Actuator Operations */}
+      <SecurityPinModal />
     </div>
   );
 };

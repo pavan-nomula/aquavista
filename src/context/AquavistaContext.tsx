@@ -92,6 +92,16 @@ interface AquavistaContextType {
   markAlertRead: (id: string) => void;
   clearAlerts: () => void;
   activityLog: ActivityLogItem[];
+
+  // Access Control & Security Passcode
+  isUnlocked: boolean;
+  unlockControls: (pin: string) => boolean;
+  lockControls: () => void;
+  changePin: (oldPin: string, newPin: string) => { success: boolean; message: string };
+  isPinModalOpen: boolean;
+  pinModalPurpose: string;
+  openPinModal: (purpose?: string, onSuccessAction?: () => void) => void;
+  closePinModal: () => void;
 }
 
 const AquavistaContext = createContext<AquavistaContextType | null>(null);
@@ -136,6 +146,60 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem('aquavista_esp32_ip', clean);
   }, []);
 
+  // Access Control Passcode State
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && sessionStorage.getItem('aquavista_is_unlocked') === 'true';
+  });
+  const [pinCode, setPinCode] = useState<string>(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem('aquavista_operator_pin')) || '1986';
+  });
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [pinModalPurpose, setPinModalPurpose] = useState('manual operation');
+  const pendingActionRef = useRef<(() => void) | null>(null);
+
+  const openPinModal = useCallback((purpose = 'manual operation', onSuccessAction?: () => void) => {
+    setPinModalPurpose(purpose);
+    pendingActionRef.current = onSuccessAction || null;
+    setIsPinModalOpen(true);
+  }, []);
+
+  const closePinModal = useCallback(() => {
+    setIsPinModalOpen(false);
+    pendingActionRef.current = null;
+  }, []);
+
+  const unlockControls = useCallback((enteredPin: string): boolean => {
+    if (enteredPin === pinCode) {
+      setIsUnlocked(true);
+      sessionStorage.setItem('aquavista_is_unlocked', 'true');
+      setIsPinModalOpen(false);
+      if (pendingActionRef.current) {
+        const action = pendingActionRef.current;
+        pendingActionRef.current = null;
+        setTimeout(() => action(), 60);
+      }
+      return true;
+    }
+    return false;
+  }, [pinCode]);
+
+  const lockControls = useCallback(() => {
+    setIsUnlocked(false);
+    sessionStorage.removeItem('aquavista_is_unlocked');
+  }, []);
+
+  const changePin = useCallback((oldPin: string, newPin: string): { success: boolean; message: string } => {
+    if (oldPin !== pinCode) {
+      return { success: false, message: 'Current passcode is incorrect.' };
+    }
+    if (!/^\d{4}$/.test(newPin)) {
+      return { success: false, message: 'New passcode must be exactly 4 digits.' };
+    }
+    setPinCode(newPin);
+    localStorage.setItem('aquavista_operator_pin', newPin);
+    return { success: true, message: 'Passcode updated successfully.' };
+  }, [pinCode]);
+
   // Helper to add activity
   const addActivity = useCallback((device: string, icon: string, event: string, triggerType: 'Manual' | 'Scheduled' | 'Automatic', duration = 'Active') => {
     const newAct: ActivityLogItem = {
@@ -166,8 +230,17 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const clearSafetyNotice = useCallback(() => setSafetyNotice(null), []);
 
-  // Device control with genuine safety locks
+  // Device control with genuine safety locks & Passcode protection
   const toggleDevice = useCallback((key: DeviceKey) => {
+    if (!isUnlocked) {
+      const label = key === 'heater' ? 'Heater' :
+                    key === 'airPump' ? 'Oxygen Pump' :
+                    key === 'light' ? 'Aquarium Light' :
+                    key === 'fillPump' ? 'Fill Pump' : 'Drain Pump';
+      openPinModal(`operate ${label}`, () => toggleDevice(key));
+      return;
+    }
+
     setDevices(prev => {
       const current = prev[key];
       const nextOn = !current.on;
@@ -229,7 +302,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       };
     });
-  }, [connectionStatus, telemetry.waterLevel, addActivity, esp32Ip]);
+  }, [isUnlocked, openPinModal, connectionStatus, telemetry.waterLevel, addActivity, esp32Ip]);
 
   const setHeaterTarget = useCallback((temp: number) => {
     setDevices(prev => ({
@@ -244,6 +317,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Simple 3-Phase Water Change (Drain -> Refill -> Complete)
   const startWaterChange = useCallback((drainTo = 50, fillTo = 85) => {
+    if (!isUnlocked) {
+      openPinModal('start water change', () => startWaterChange(drainTo, fillTo));
+      return;
+    }
+
     if (connectionStatus === 'offline') {
       setSafetyNotice('Cannot start water change: Controller is OFFLINE.');
       return;
@@ -267,9 +345,14 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (connectionStatus === 'connected') {
       sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
     }
-  }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, esp32Ip]);
+  }, [isUnlocked, openPinModal, connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, esp32Ip]);
 
   const abortWaterChange = useCallback(() => {
+    if (!isUnlocked) {
+      openPinModal('abort water change', () => abortWaterChange());
+      return;
+    }
+
     setCleaningState(prev => ({
       ...prev,
       status: 'aborted',
@@ -287,14 +370,19 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (connectionStatus === 'connected') {
       sendEspWaterChangeCommand(esp32Ip, 'abort');
     }
-  }, [addActivity, addAlert, esp32Ip]);
+  }, [isUnlocked, openPinModal, addActivity, addAlert, esp32Ip]);
 
   const updateAutomation = useCallback((newSettings: Partial<AutomationSettings>) => {
     setAutomation(prev => ({ ...prev, ...newSettings }));
   }, []);
 
-  // Fish Feeder actions with Anti-Overfeeding Safety Protection
+  // Fish Feeder actions with Anti-Overfeeding Safety Protection & Passcode Guard
   const triggerFeed = useCallback((portion?: PortionSize, source: 'manual' | 'scheduled' | 'auto' = 'manual') => {
+    if (source === 'manual' && !isUnlocked) {
+      openPinModal('dispense fish food', () => triggerFeed(portion, 'manual'));
+      return;
+    }
+
     const chosenPortion = portion || feeder.portionSize;
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const isOverfeedRisk = feeder.feedsTodayCount >= feeder.maxDailyFeeds;
@@ -337,7 +425,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setTimeout(() => {
       setFeeder(prev => ({ ...prev, isDispensing: false }));
     }, 2500);
-  }, [feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert, esp32Ip, connectionStatus]);
+  }, [isUnlocked, openPinModal, feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert, esp32Ip, connectionStatus]);
 
   const updateFeederSettings = useCallback((settings: Partial<FeederState>) => {
     setFeeder(prev => ({ ...prev, ...settings }));
@@ -666,6 +754,15 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         markAlertRead,
         clearAlerts,
         activityLog,
+        // Access Control & Security Passcode
+        isUnlocked,
+        unlockControls,
+        lockControls,
+        changePin,
+        isPinModalOpen,
+        pinModalPurpose,
+        openPinModal,
+        closePinModal,
       }}
     >
       {children}

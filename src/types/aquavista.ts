@@ -189,3 +189,8 @@ export type ActiveTab =
   | 'energy'
   | 'alerts'
   | 'settings';
+
+export interface SecurityState {
+  isUnlocked: boolean;
+  pinCode: string;
+}
