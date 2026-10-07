@@ -20,6 +20,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <RTClib.h>
 #include <ESP32Servo.h>
+#include <PubSubClient.h>
 
 /******************* WIFI CREDENTIALS *******************/
 const char* ssid = "Bhanu";
@@ -57,6 +58,16 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);   // Change address to 0x3F if your I2C modu
 RTC_DS3231 rtc;
 Servo feederServo;
 WebServer server(80);
+
+// MQTT Cloud Client (Worldwide access on mobile data)
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+const char* mqttServer       = "broker.hivemq.com";
+const int   mqttPort         = 1883;
+const char* mqttStatusTopic  = "aquavista/tank/pavan/status";
+const char* mqttCommandTopic = "aquavista/tank/pavan/command";
+unsigned long lastMqttReconnectAttempt = 0;
+unsigned long lastMqttPublishTime      = 0;
 
 /******************* GLOBAL STATE VARIABLES *******************/
 // Sensor Telemetry
@@ -455,6 +466,10 @@ void handleApiDevice() {
     success = false;
   }
 
+  if (success) {
+    publishStatusToMqtt();
+  }
+
   String res = "{\"success\":" + String(success ? "true" : "false") + ",\"device\":\"" + device + "\",\"state\":" + String(targetState ? "true" : "false") + "}";
   server.send(success ? 200 : 400, "application/json", res);
 }
@@ -463,6 +478,7 @@ void handleApiDevice() {
 void handleApiFeed() {
   sendCorsHeaders();
   triggerFeeder();
+  publishStatusToMqtt();
   server.send(200, "application/json", "{\"success\":true,\"action\":\"feed_dispensed\"}");
 }
 
@@ -485,7 +501,111 @@ void handleApiWaterChange() {
     setRelay(RELAY_FILL_PIN, false);
   }
 
+  publishStatusToMqtt();
   server.send(200, "application/json", "{\"success\":true,\"action\":\"" + action + "\",\"phase\":\"" + waterChangePhase + "\"}");
+}
+
+/******************* MQTT CLOUD HELPER FUNCTIONS *******************/
+void publishStatusToMqtt() {
+  if (!mqttClient.connected()) return;
+
+  String json = "{";
+  json += "\"temperature\":" + String(temperature, 1) + ",";
+  json += "\"waterLevel\":" + String(waterPercent, 1) + ",";
+  json += "\"tds\":" + String((int)tdsValue) + ",";
+  json += "\"lightLevel\":" + String(lightLevel) + ",";
+  json += "\"heater\":" + String(heaterOn ? "true" : "false") + ",";
+  json += "\"airPump\":" + String(airPumpOn ? "true" : "false") + ",";
+  json += "\"light\":" + String(lightOn ? "true" : "false") + ",";
+  json += "\"fillPump\":" + String(fillPumpOn ? "true" : "false") + ",";
+  json += "\"drainPump\":" + String(drainPumpOn ? "true" : "false") + ",";
+  json += "\"feederDispensing\":" + String(isFeeding ? "true" : "false") + ",";
+  json += "\"autoWaterChange\":" + String(autoWaterChangeActive ? "true" : "false");
+  json += "}";
+
+  mqttClient.publish(mqttStatusTopic, json.c_str());
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String msg = "";
+  for (unsigned int i = 0; i < length; i++) {
+    msg += (char)payload[i];
+  }
+  Serial.print("[MQTT RX] ");
+  Serial.println(msg);
+
+  if (msg.indexOf("\"device\":\"heater\"") >= 0) {
+    bool state = (msg.indexOf("\"state\":1") >= 0 || msg.indexOf("\"state\":true") >= 0);
+    manualHeaterMode = true;
+    if (state && waterPercent < 30.0) {
+      heaterOn = false;
+    } else {
+      heaterOn = state;
+    }
+    setRelay(RELAY_HEATER_PIN, heaterOn);
+  }
+  else if (msg.indexOf("\"device\":\"airPump\"") >= 0) {
+    bool state = (msg.indexOf("\"state\":1") >= 0 || msg.indexOf("\"state\":true") >= 0);
+    manualPumpMode = true;
+    airPumpOn = state;
+    setRelay(RELAY_PUMP_PIN, airPumpOn);
+  }
+  else if (msg.indexOf("\"device\":\"light\"") >= 0) {
+    bool state = (msg.indexOf("\"state\":1") >= 0 || msg.indexOf("\"state\":true") >= 0);
+    manualLightMode = true;
+    lightOn = state;
+    setRelay(RELAY_LIGHT_PIN, lightOn);
+  }
+  else if (msg.indexOf("\"device\":\"fillPump\"") >= 0) {
+    bool state = (msg.indexOf("\"state\":1") >= 0 || msg.indexOf("\"state\":true") >= 0);
+    manualPumpsMode = true;
+    fillPumpOn = state;
+    if (fillPumpOn) {
+      drainPumpOn = false;
+      setRelay(RELAY_DRAIN_PIN, false);
+    }
+    setRelay(RELAY_FILL_PIN, fillPumpOn);
+  }
+  else if (msg.indexOf("\"device\":\"drainPump\"") >= 0) {
+    bool state = (msg.indexOf("\"state\":1") >= 0 || msg.indexOf("\"state\":true") >= 0);
+    manualPumpsMode = true;
+    drainPumpOn = state;
+    if (drainPumpOn) {
+      fillPumpOn = false;
+      setRelay(RELAY_FILL_PIN, false);
+    }
+    setRelay(RELAY_DRAIN_PIN, drainPumpOn);
+  }
+  else if (msg.indexOf("\"action\":\"feed\"") >= 0) {
+    triggerFeeder();
+  }
+  else if (msg.indexOf("\"action\":\"waterchange\"") >= 0) {
+    if (msg.indexOf("\"subAction\":\"start\"") >= 0) {
+      autoWaterChangeActive = true;
+      waterChangePhase = "draining";
+    } else {
+      autoWaterChangeActive = false;
+      waterChangePhase = "idle";
+      drainPumpOn = false;
+      fillPumpOn  = false;
+      setRelay(RELAY_DRAIN_PIN, false);
+      setRelay(RELAY_FILL_PIN, false);
+    }
+  }
+
+  publishStatusToMqtt();
+}
+
+void reconnectMqtt() {
+  if (millis() - lastMqttReconnectAttempt > 4000) {
+    lastMqttReconnectAttempt = millis();
+    String clientId = "AquaVistaESP32_" + String(random(0xffff), HEX);
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println("[MQTT] Connected to HiveMQ Cloud Broker successfully!");
+      mqttClient.subscribe(mqttCommandTopic);
+      publishStatusToMqtt();
+    }
+  }
 }
 
 /******************* SETUP *******************/
@@ -600,14 +720,29 @@ void setup() {
 
   server.begin();
   Serial.println("[HTTP] REST API Server listening on port 80.");
+
+  // Initialize MQTT Cloud Client (HiveMQ - Worldwide access over Mobile Data)
+  mqttClient.setServer(mqttServer, mqttPort);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+  Serial.println("[MQTT] Cloud client configured (broker.hivemq.com:1883).");
 }
 
 /******************* MAIN LOOP *******************/
 void loop() {
-  // 1. Handle incoming HTTP REST requests (Zero delay)
+  // 1. Maintain MQTT Cloud Connection & receive remote commands (Mobile Data / Worldwide)
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!mqttClient.connected()) {
+      reconnectMqtt();
+    } else {
+      mqttClient.loop();
+    }
+  }
+
+  // 2. Handle incoming HTTP REST requests (Local WiFi / Zero delay)
   server.handleClient();
 
-  // 2. Read sensors periodically every 1000ms
+  // 3. Read sensors periodically every 1000ms
   unsigned long currentMillis = millis();
   if (currentMillis - lastSensorReadTime >= 1000) {
     lastSensorReadTime = currentMillis;
@@ -615,7 +750,15 @@ void loop() {
     processAutomationAndSafety();
   }
 
-  // 3. Cycle LCD screens every 3000ms
+  // 4. Publish live telemetry to Cloud MQTT every 1500ms
+  if (currentMillis - lastMqttPublishTime >= 1500) {
+    lastMqttPublishTime = currentMillis;
+    if (mqttClient.connected()) {
+      publishStatusToMqtt();
+    }
+  }
+
+  // 5. Cycle LCD screens every 3000ms
   if (currentMillis - lastLcdUpdateTime >= 3000) {
     lastLcdUpdateTime = currentMillis;
     updateLcd();

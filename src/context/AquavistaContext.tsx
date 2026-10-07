@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   TelemetryData,
   TelemetryHistoryPoint,
@@ -33,6 +33,12 @@ import {
   sendEspFeedCommand,
   sendEspWaterChangeCommand,
 } from '../services/hardwareService';
+import {
+  initMqttSync,
+  publishMqttCommand,
+  publishMqttFeed,
+  publishMqttWaterChange,
+} from '../services/mqttService';
 
 interface AquavistaContextType {
   activeTab: ActiveTab;
@@ -100,6 +106,9 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [telemetryHistory, setTelemetryHistory] = useState<TelemetryHistoryPoint[]>(() => generateInitialHistory());
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'offline'>('connected');
   const [lastSyncSecondsAgo, setLastSyncSecondsAgo] = useState(0);
+
+  const lastDataReceivedTime = useRef<number>(Date.now());
+  const mqttConnectedRef = useRef<boolean>(false);
 
   const [devices, setDevices] = useState<DeviceState>(INITIAL_DEVICES);
   const [safetyNotice, setSafetyNotice] = useState<string | null>(null);
@@ -174,11 +183,6 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Device control with genuine safety locks
   const toggleDevice = useCallback((key: DeviceKey) => {
-    if (connectionStatus === 'offline') {
-      setSafetyNotice('Cannot modify actuators: Controller is OFFLINE.');
-      return;
-    }
-
     setDevices(prev => {
       const current = prev[key];
       const nextOn = !current.on;
@@ -224,8 +228,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                    key === 'fillPump' ? 'ArrowUpCircle' : 'ArrowDownCircle';
       addActivity(label, icon, `${label} turned ${nextOn ? 'ON' : 'OFF'}`, 'Manual');
 
-      if (!demoMode && connectionStatus === 'connected') {
-        sendEspDeviceCommand(esp32Ip, key, nextOn);
+      if (!demoMode) {
+        publishMqttCommand(key, nextOn);
+        if (connectionStatus === 'connected') {
+          sendEspDeviceCommand(esp32Ip, key, nextOn);
+        }
       }
 
       return {
@@ -272,8 +279,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addActivity('Drain Pump', 'ArrowDownCircle', `Water change started: Draining to ${drainTo}%`, 'Manual');
     addAlert('INFO', 'Water Change Started', `Draining water to ${drainTo}% before fresh refill.`, 'cleaning');
 
-    if (!demoMode && connectionStatus === 'connected') {
-      sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
+    if (!demoMode) {
+      publishMqttWaterChange('start');
+      if (connectionStatus === 'connected') {
+        sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
+      }
     }
   }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, demoMode, esp32Ip]);
 
@@ -291,8 +301,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addActivity('Water Management', 'AlertTriangle', 'Water change cancelled by user', 'Manual');
     addAlert('WARNING', 'Water Change Cancelled', 'Pumps stopped. Normal monitoring resumed.', 'cleaning');
 
-    if (!demoMode && connectionStatus === 'connected') {
-      sendEspWaterChangeCommand(esp32Ip, 'abort');
+    if (!demoMode) {
+      publishMqttWaterChange('abort');
+      if (connectionStatus === 'connected') {
+        sendEspWaterChangeCommand(esp32Ip, 'abort');
+      }
     }
   }, [addActivity, addAlert, demoMode, esp32Ip]);
 
@@ -336,8 +349,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addAlert('SUCCESS', 'Fish Feeder Dispensed', `${portionLabel} portion of nutrient flakes dispensed for fishes.`, 'feeder');
     }
 
-    if (!demoMode && connectionStatus === 'connected') {
-      sendEspFeedCommand(esp32Ip);
+    if (!demoMode) {
+      publishMqttFeed();
+      if (connectionStatus === 'connected') {
+        sendEspFeedCommand(esp32Ip);
+      }
     }
 
     setTimeout(() => {
@@ -638,10 +654,10 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       } catch {
         if (!isSubscribed) return;
-        setConnectionStatus('offline');
-        if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !sessionStorage.getItem('mixed_warned')) {
-          setSafetyNotice('Browser notice: Chrome/Edge may block local HTTP requests to ' + (esp32Ip || 'ESP32') + ' from HTTPS. Click the Padlock icon in address bar > Site Settings > Insecure Content > Allow, OR open http://' + (esp32Ip || 'ESP32_IP') + ' directly in your browser!');
-          sessionStorage.setItem('mixed_warned', 'true');
+        // If MQTT is connected or recent data was received within 10s, don't mark offline!
+        const timeSinceData = Date.now() - lastDataReceivedTime.current;
+        if (!mqttConnectedRef.current && timeSinceData > 10000) {
+          setConnectionStatus('offline');
         }
       }
     };
@@ -653,6 +669,52 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       clearInterval(pollInterval);
     };
   }, [demoMode, esp32Ip]);
+
+  // WORLDWIDE REAL-TIME CLOUD MQTT SYNC (Works on Mobile Data, 4G, 5G, Anywhere!)
+  useEffect(() => {
+    if (demoMode) return;
+
+    const cleanup = initMqttSync(
+      (data) => {
+        lastDataReceivedTime.current = Date.now();
+        setConnectionStatus('connected');
+        setLastSyncSecondsAgo(0);
+
+        const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const newPoint = {
+          temperature: Number(data.temperature.toFixed(1)),
+          waterLevel: Number(data.waterLevel.toFixed(1)),
+          tds: Math.round(data.tds),
+          lightLevel: Math.round(data.lightLevel),
+          timestamp: timeLabel,
+          timeLabel,
+        };
+        setTelemetry(newPoint);
+        setTelemetryHistory(prev => [...prev.slice(-25), newPoint]);
+
+        setDevices(prev => ({
+          ...prev,
+          heater: { ...prev.heater, on: data.heater },
+          airPump: { ...prev.airPump, on: data.airPump },
+          light: { ...prev.light, on: data.light },
+          fillPump: { ...prev.fillPump, on: data.fillPump },
+          drainPump: { ...prev.drainPump, on: data.drainPump },
+        }));
+
+        if (data.feederDispensing !== undefined) {
+          setFeeder(f => ({ ...f, isDispensing: data.feederDispensing ?? false }));
+        }
+      },
+      (connected) => {
+        mqttConnectedRef.current = connected;
+        if (connected) {
+          setConnectionStatus('connected');
+        }
+      }
+    );
+
+    return cleanup;
+  }, [demoMode]);
 
   return (
     <AquavistaContext.Provider
