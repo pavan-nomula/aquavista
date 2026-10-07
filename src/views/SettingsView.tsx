@@ -8,7 +8,6 @@ import {
   Layers,
   Droplets,
   CalendarClock,
-  Sparkles,
   Wifi,
   WifiOff,
   Radio,
@@ -20,8 +19,6 @@ export const SettingsView: React.FC = () => {
   const {
     automation,
     updateAutomation,
-    demoMode,
-    setDemoMode,
     connectionStatus,
     esp32Ip,
     setEsp32Ip,
@@ -175,24 +172,6 @@ export const SettingsView: React.FC = () => {
                 {connectionStatus === 'connected' ? 'Connected' : 'Offline'}
               </span>
             </div>
-          </div>
-
-          {/* Demo Mode Toggle */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-ocean-900 border border-ocean-800">
-            <div>
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> Demo Simulation Mode
-              </span>
-              <p className="text-[11px] text-slate-400">Toggle between simulation and live ESP32 hardware</p>
-            </div>
-            <button
-              onClick={() => setDemoMode(!demoMode)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
-                demoMode ? 'bg-cyan-500 text-ocean-950 shadow-sm shadow-cyan-500/20' : 'bg-ocean-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              {demoMode ? 'SIMULATION' : 'LIVE HW'}
-            </button>
           </div>
         </div>
 

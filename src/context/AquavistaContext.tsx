@@ -92,10 +92,6 @@ interface AquavistaContextType {
   markAlertRead: (id: string) => void;
   clearAlerts: () => void;
   activityLog: ActivityLogItem[];
-
-  // Demo Simulation Mode
-  demoMode: boolean;
-  setDemoMode: (enabled: boolean) => void;
 }
 
 const AquavistaContext = createContext<AquavistaContextType | null>(null);
@@ -138,17 +134,6 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const clean = newIp.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
     setEsp32IpState(clean);
     localStorage.setItem('aquavista_esp32_ip', clean);
-  }, []);
-
-  // Demo Mode: Default to FALSE (Live Hardware Mode) so real data shows immediately!
-  const [demoMode, setDemoModeState] = useState<boolean>(() => {
-    const saved = localStorage.getItem('aquavista_demo_mode');
-    return saved !== null ? saved === 'true' : false;
-  });
-
-  const setDemoMode = useCallback((val: boolean) => {
-    setDemoModeState(val);
-    localStorage.setItem('aquavista_demo_mode', String(val));
   }, []);
 
   // Helper to add activity
@@ -228,11 +213,10 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                    key === 'fillPump' ? 'ArrowUpCircle' : 'ArrowDownCircle';
       addActivity(label, icon, `${label} turned ${nextOn ? 'ON' : 'OFF'}`, 'Manual');
 
-      if (!demoMode) {
-        publishMqttCommand(key, nextOn);
-        if (connectionStatus === 'connected') {
-          sendEspDeviceCommand(esp32Ip, key, nextOn);
-        }
+      // Send live commands (Cloud MQTT + Local HTTP)
+      publishMqttCommand(key, nextOn);
+      if (connectionStatus === 'connected') {
+        sendEspDeviceCommand(esp32Ip, key, nextOn);
       }
 
       return {
@@ -245,7 +229,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         },
       };
     });
-  }, [connectionStatus, telemetry.waterLevel, addActivity, demoMode, esp32Ip]);
+  }, [connectionStatus, telemetry.waterLevel, addActivity, esp32Ip]);
 
   const setHeaterTarget = useCallback((temp: number) => {
     setDevices(prev => ({
@@ -279,13 +263,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addActivity('Drain Pump', 'ArrowDownCircle', `Water change started: Draining to ${drainTo}%`, 'Manual');
     addAlert('INFO', 'Water Change Started', `Draining water to ${drainTo}% before fresh refill.`, 'cleaning');
 
-    if (!demoMode) {
-      publishMqttWaterChange('start');
-      if (connectionStatus === 'connected') {
-        sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
-      }
+    publishMqttWaterChange('start');
+    if (connectionStatus === 'connected') {
+      sendEspWaterChangeCommand(esp32Ip, 'start', drainTo, fillTo);
     }
-  }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, demoMode, esp32Ip]);
+  }, [connectionStatus, cleaningState.lastCompleted, addActivity, addAlert, esp32Ip]);
 
   const abortWaterChange = useCallback(() => {
     setCleaningState(prev => ({
@@ -301,13 +283,11 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addActivity('Water Management', 'AlertTriangle', 'Water change cancelled by user', 'Manual');
     addAlert('WARNING', 'Water Change Cancelled', 'Pumps stopped. Normal monitoring resumed.', 'cleaning');
 
-    if (!demoMode) {
-      publishMqttWaterChange('abort');
-      if (connectionStatus === 'connected') {
-        sendEspWaterChangeCommand(esp32Ip, 'abort');
-      }
+    publishMqttWaterChange('abort');
+    if (connectionStatus === 'connected') {
+      sendEspWaterChangeCommand(esp32Ip, 'abort');
     }
-  }, [addActivity, addAlert, demoMode, esp32Ip]);
+  }, [addActivity, addAlert, esp32Ip]);
 
   const updateAutomation = useCallback((newSettings: Partial<AutomationSettings>) => {
     setAutomation(prev => ({ ...prev, ...newSettings }));
@@ -321,7 +301,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     setFeeder(prev => {
       const nextCount = prev.feedsTodayCount + 1;
-      const nextSecs = prev.timingMode === 'demo' ? 120 : computeNextFeedSeconds(prev.schedules).seconds;
+      const nextSecs = computeNextFeedSeconds(prev.schedules).seconds;
       return {
         ...prev,
         isDispensing: true,
@@ -349,17 +329,15 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       addAlert('SUCCESS', 'Fish Feeder Dispensed', `${portionLabel} portion of nutrient flakes dispensed for fishes.`, 'feeder');
     }
 
-    if (!demoMode) {
-      publishMqttFeed();
-      if (connectionStatus === 'connected') {
-        sendEspFeedCommand(esp32Ip);
-      }
+    publishMqttFeed();
+    if (connectionStatus === 'connected') {
+      sendEspFeedCommand(esp32Ip);
     }
 
     setTimeout(() => {
       setFeeder(prev => ({ ...prev, isDispensing: false }));
     }, 2500);
-  }, [feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert, demoMode, esp32Ip, connectionStatus]);
+  }, [feeder.portionSize, feeder.feedsTodayCount, feeder.maxDailyFeeds, addActivity, addAlert, esp32Ip, connectionStatus]);
 
   const updateFeederSettings = useCallback((settings: Partial<FeederState>) => {
     setFeeder(prev => ({ ...prev, ...settings }));
@@ -434,85 +412,26 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         drainPump: prev.drainPump.on ? { ...prev.drainPump, runtimeSeconds: prev.drainPump.runtimeSeconds + 1 } : prev.drainPump,
       }));
 
-      // Automatic Fish Feeder: Realistic Schedule Mode vs Rapid Demo
+      // Automatic Fish Feeder: Realistic Daily Schedule Mode
       setFeeder(prev => {
         if (!prev.autoMode) return prev;
 
-        if (prev.timingMode === 'demo') {
-          // Rapid Demo mode
-          if (prev.nextFeedInSeconds <= 1) {
-            setTimeout(() => {
-              triggerFeed(prev.portionSize, 'auto');
-            }, 0);
-            return {
-              ...prev,
-              nextFeedInSeconds: 120,
-            };
-          }
-          return {
-            ...prev,
-            nextFeedInSeconds: prev.nextFeedInSeconds - 1,
-          };
-        } else {
-          // Realistic Schedule Mode (Follows 2-3 daily feeding times)
-          const { seconds, nextSlot } = computeNextFeedSeconds(prev.schedules);
-          const now = new Date();
-          const currentHM = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        const { seconds, nextSlot } = computeNextFeedSeconds(prev.schedules);
+        const now = new Date();
+        const currentHM = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-          // If current real clock hits the scheduled time at the start of the minute
-          if (now.getSeconds() === 0 && nextSlot && nextSlot.time === currentHM && nextSlot.enabled) {
-            setTimeout(() => {
-              triggerFeed(nextSlot.portion, 'scheduled');
-            }, 0);
-          }
-
-          return {
-            ...prev,
-            nextFeedInSeconds: seconds,
-          };
+        // If current real clock hits the scheduled time at the start of the minute
+        if (now.getSeconds() === 0 && nextSlot && nextSlot.time === currentHM && nextSlot.enabled) {
+          setTimeout(() => {
+            triggerFeed(nextSlot.portion, 'scheduled');
+          }, 0);
         }
+
+        return {
+          ...prev,
+          nextFeedInSeconds: seconds,
+        };
       });
-
-      // If demoMode is enabled, simulate realistic natural sensor dynamics
-      if (demoMode) {
-        setTelemetry(prev => {
-          let newTemp = prev.temperature;
-          let newLevel = prev.waterLevel;
-          let newTds = prev.tds;
-
-          // Temperature: Heater heats, ambient slowly cools
-          if (devices.heater.on) {
-            const delta = (devices.heater.targetTemp - newTemp) * 0.02;
-            newTemp += Math.max(0.01, delta);
-          } else {
-            const ambient = 23.0;
-            newTemp -= (newTemp - ambient) * 0.005;
-          }
-
-          // Water Level & TDS
-          if (devices.fillPump.on) {
-            newLevel = Math.min(100, newLevel + 0.5);
-            newTds = Math.max(160, newTds - 0.7); // dilution
-          }
-          if (devices.drainPump.on) {
-            newLevel = Math.max(10, newLevel - 0.8);
-          }
-          if (!devices.fillPump.on && !devices.drainPump.on) {
-            newLevel = Math.max(0, newLevel - 0.002);
-            newTds = Math.min(500, newTds + 0.01);
-          }
-
-          const lightVal = devices.light.on ? 420 : 45;
-
-          return {
-            temperature: Number(newTemp.toFixed(1)),
-            waterLevel: Number(newLevel.toFixed(1)),
-            tds: Math.round(newTds),
-            lightLevel: lightVal,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          };
-        });
-      }
 
       // Safety check: Heater lockout if level < 30%
       setDevices(prev => {
@@ -605,7 +524,6 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => clearInterval(interval);
   }, [
     connectionStatus,
-    demoMode,
     devices,
     telemetry,
     cleaningState,
@@ -615,10 +533,8 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     addAlert,
   ]);
 
-  // LIVE HARDWARE POLLING (Active when demoMode is disabled)
+  // LIVE HARDWARE POLLING (ESP32 Local Network)
   useEffect(() => {
-    if (demoMode) return;
-
     let isSubscribed = true;
     const syncHardware = async () => {
       try {
@@ -668,12 +584,10 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       isSubscribed = false;
       clearInterval(pollInterval);
     };
-  }, [demoMode, esp32Ip]);
+  }, [esp32Ip]);
 
   // WORLDWIDE REAL-TIME CLOUD MQTT SYNC (Works on Mobile Data, 4G, 5G, Anywhere!)
   useEffect(() => {
-    if (demoMode) return;
-
     const cleanup = initMqttSync(
       (data) => {
         lastDataReceivedTime.current = Date.now();
@@ -714,7 +628,7 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     );
 
     return cleanup;
-  }, [demoMode]);
+  }, []);
 
   return (
     <AquavistaContext.Provider
@@ -752,8 +666,6 @@ export const AquavistaProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         markAlertRead,
         clearAlerts,
         activityLog,
-        demoMode,
-        setDemoMode,
       }}
     >
       {children}

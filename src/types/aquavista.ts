@@ -142,8 +142,8 @@ export interface FeederState {
   schedules: FeedingScheduleSlot[];
   isDispensing: boolean;
   feedsTodayCount: number;
-  maxDailyFeeds: number; // typically 2-3 per day
-  timingMode: 'schedule' | 'demo'; // 'schedule' = realistic daily clock, 'demo' = rapid simulation preview
+  maxDailyFeeds: number;
+  timingMode: 'schedule';
   antiOverfeedWarning?: string;
 }
 

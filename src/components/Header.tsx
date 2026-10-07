@@ -7,7 +7,6 @@ import {
   Clock,
   Maximize2,
   Bell,
-  Sparkles,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -19,8 +18,6 @@ export const Header: React.FC = () => {
     alerts,
     setActiveTab,
     devices,
-    demoMode,
-    setDemoMode,
     esp32Ip,
   } = useAquavista();
 
@@ -82,21 +79,16 @@ export const Header: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Controller link, sync, demo tag, and actions */}
+        {/* Right: Controller link, sync, live hardware badge, and actions */}
         <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-          {/* Demo Mode Badge */}
-          <button
-            onClick={() => setDemoMode(!demoMode)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 border transition-all ${
-              demoMode
-                ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
-                : 'bg-ocean-900 border-ocean-700 text-slate-500 hover:text-slate-400'
-            }`}
-            title="Click to toggle Demo Mode"
+          {/* Live Hardware Badge */}
+          <div
+            className="px-2.5 py-1 rounded-lg text-xs font-mono font-semibold flex items-center gap-1.5 border bg-emerald-950/40 border-emerald-500/30 text-emerald-400 shadow-sm"
+            title="AquaVista ESP32 Live Hardware Active"
           >
-            <Sparkles className="w-3 h-3 text-cyan-400" />
-            <span>{demoMode ? 'DEMO MODE' : 'LIVE HW'}</span>
-          </button>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>LIVE HARDWARE</span>
+          </div>
 
           {/* Controller status */}
           <button

@@ -99,17 +99,9 @@ export const SchedulesView: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <span className="text-slate-400 text-[11px] font-mono">Timing Mode:</span>
-            <button
-              onClick={() => updateFeederSettings({ timingMode: feeder.timingMode === 'schedule' ? 'demo' : 'schedule' })}
-              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${
-                feeder.timingMode === 'schedule'
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-              }`}
-              title="Click to switch between Realistic Daily Schedule and Rapid Demo preview"
-            >
-              {feeder.timingMode === 'schedule' ? '📅 Daily Schedule (Safe)' : '⚡ Fast Demo Loop'}
-            </button>
+            <span className="px-2.5 py-1 rounded-lg text-xs font-mono font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-500/40">
+              📅 Daily Schedule (Real Time)
+            </span>
           </div>
         </div>
         {/* Feeder Top Header */}
